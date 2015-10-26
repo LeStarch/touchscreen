@@ -5,6 +5,8 @@
 #include <string.h>
 #include <errno.h>
 
+#include <unistd.h>
+#include <fcntl.h> 
 /**
  * Detects the correct hidraw device
  */
@@ -45,13 +47,26 @@ struct udev_device* detect(struct udev* udev) {
 	return NULL;
 }
 /**
+ * Clear out the file
+ */
+void clear(int fp) {
+	char buffer[2048];
+	size_t ret = 2048;
+	while (0 != ret) {
+		ret = read(fp,buffer,2048);
+		printf("Reading %d:%s\n",ret,strerror(errno));
+	}
+}
+
+/**
  * Read events from a file
  */
-void events(FILE* fp) {
-	char buffer[50];
+void events(int fp) {
+	char buffer[25];
+	clear(fp);
 	while (1) {
-		char* ret = fgets(buffer,25,fp);
-		if (NULL != ret) {
+		size_t s = read(fp,buffer,(25));
+		if (s <= 0) {
 			continue;
 		}
 		int i = 0;
@@ -78,8 +93,8 @@ int main(int argc,char** argv) {
 		return -2;
 	}
 	const char* path = udev_device_get_syspath(dev);
-	FILE* fp = fopen(path,"rb");
-	if (NULL == fp) {
+	int fp = open(path,O_RDONLY);
+	if (-1 == fp) {
 		fprintf(stderr,"ERROR: Failed to open file: %s with error %s\n",path,strerror(errno));
 		return -1;
 	}
