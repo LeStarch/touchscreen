@@ -28,8 +28,8 @@ struct udev_device* detect(struct udev* udev) {
 			printf("INFO: Could not find USB Parent of: %s\n",path);
 			continue;
 		}
-		const char* vendor = udev_device_get_sysattr_value(dev,"idVendor");
-		const char* id = udev_device_get_sysattr_value(dev, "idProduct");
+		const char* vendor = udev_device_get_sysattr_value(parent,"idVendor");
+		const char* id = udev_device_get_sysattr_value(parent, "idProduct");
 		printf("INFO: Found device: VID: %s DID: %s\n",vendor,id);
 	    //Exit when device is found
 		if (strcmp(vendor,"0EEF") && strcmp(id,"0005")) {
