@@ -7,10 +7,16 @@
 
 #include <unistd.h>
 #include <fcntl.h> 
+
+#include "utils.h"
+
 /**
- * Detects the correct hidraw device
+ * Detects the correct hidraw device that matches the touchscreen's
+ * vendor id of oeef and device id of 0005.
+ * udev - udev context used to enumerate
+ * returns - /dev/?? path to touchscreen's device handle
  */
-struct udev_device* detect(struct udev* udev) {
+char* detect(struct udev* udev) {
 	struct udev_enumerate *enumerate;
 	struct udev_list_entry *devices, *entry;
 	struct udev_device *dev,*parent;
@@ -28,6 +34,7 @@ struct udev_device* detect(struct udev* udev) {
 		path = udev_list_entry_get_name(entry);
 		printf("INFO: Inspecting path: %s\n",path);
 		dev = udev_device_new_from_syspath(udev, path);
+		//Get the parent (USB Device)
 		parent = udev_device_get_parent_with_subsystem_devtype(dev,"usb","usb_device");
 		if (parent == NULL) {
 			printf("INFO: Could not find USB Parent of: %s\n",path);
@@ -38,12 +45,27 @@ struct udev_device* detect(struct udev* udev) {
 		printf("INFO: Found device: VID: %s DID: %s\n",vendor,id);
 		//Exit when device is found
 		if (0 == strcmp(vendor,"0eef") && 0 == strcmp(id,"0005")) {
-			printf("INFO: Detected touchscreen at path: %s\n",path);
+			//Construct path from sysname
+                        const char* name = udev_device_get_sysname(dev);
+                        int len = strlen(name)+6;
+                        char* dpath = (char*)safe_malloc(len*sizeof(char));
+			if (NULL == dpath) {
+				return NULL;
+			}
+			strcpy(dpath,"/dev/");
+			strcpy(dpath+5,udev_device_get_sysname(dev));
+			printf("INFO: Detected touchscreen at path: %s\n",dpath);
+			//Free resources and eject
 			udev_enumerate_unref(enumerate);
-			return dev;
+			//udev_device_unref(parent);
+			//udev_device_unref(dev);
+			return dpath;
 		}
 	}
+	//Free resources and eject
 	udev_enumerate_unref(enumerate);
+	//udev_device_unref(parent);
+	//udev_device_unref(dev);
 	return NULL;
 }
 /**
@@ -59,13 +81,14 @@ void clear(int fp) {
 }
 
 /**
- * Read events from a file
+ * Read events from a file pointer
+ * fp - file pointer to read from
  */
 void events(int fp) {
 	char buffer[25];
-	clear(fp);
+	//clear(fp);
 	while (1) {
-		size_t s = read(fp,buffer,(25));
+		size_t s = read(fp,buffer,25);
 		if (s <= 0) {
 			continue;
 		}
@@ -79,27 +102,31 @@ void events(int fp) {
 }
 /**
  * Main program
+ * argc - number of arguments
+ * argv - argument values
+ * return - system exit code
  */
 int main(int argc,char** argv) {
 	printf("INFO: Running touchscreen driver\n");
 	struct udev* udev = udev_new();
 	if (NULL == udev) {
-		printf("%s","ERROR: Could not load UDEV system.\n");
+		fprintf(stderr,"%s","ERROR: Could not load UDEV system.\n");
 		return -1;
 	}
-	struct udev_device *dev = detect(udev);
-	if (NULL == dev) {
-		fprintf(stderr,"ERROR: Could not load touchscreen device.\n");
+	char* path = detect(udev);
+	if (NULL == path) {
+		fprintf(stderr,"%s","ERROR: Could not detect touchscreen device.\n");
 		return -2;
 	}
-	const char* path = udev_device_get_syspath(dev);
+	printf("INFO: Opening hidraw device at: %s\n",path);
 	int fp = open(path,O_RDONLY);
 	if (-1 == fp) {
 		fprintf(stderr,"ERROR: Failed to open file: %s with error %s\n",path,strerror(errno));
-		return -1;
+		return -3;
 	}
 	events(fp);
 	close(fp);
+        free(path);
 	udev_unref(udev);
-	return -3;
+	return 0;
 }
