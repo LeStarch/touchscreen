@@ -7,6 +7,8 @@
 
 #include <unistd.h>
 #include <fcntl.h> 
+#include <linux/input.h>
+#include <linux/uinput.h>
 
 #include "utils.h"
 
@@ -69,35 +71,63 @@ char* detect(struct udev* udev) {
 	return NULL;
 }
 /**
- * Clear out the file
+ * Sets up the uinput device
+ * ui - uinput file pointer
  */
-void clear(int fp) {
-	char buffer[2048];
-	size_t ret = 2048;
-	while (0 != ret) {
-		ret = read(fp,buffer,2048);
-		printf("Reading %d:%s\n",ret,strerror(errno));
+int setup(int ui) {
+	//int ret = ioctl(ui, UI_SET_EVBIT,EV_KEY);
+        //if (ret == -1) {
+	//	return ret;
+	//} 
+	int ret = ioctl(ui, UI_SET_EVBIT,EV_SYN);
+        if (ret == -1) {
+		return ret;
 	}
+	ret = ioctl(ui, UI_SET_EVBIT,EV_ABS);
+        if (ret == -1) {
+		return ret;
+	}
+	struct uinput_user_dev uidev;
+	memset(&uidev, 0, sizeof(uidev));
+	snprintf(uidev.name, UINPUT_MAX_NAME_SIZE, "touchscreen-driver");
+	uidev.id.bustype = BUS_USB;
+	uidev.id.vendor  = 0xdead;
+	uidev.id.product = 0xbeef;
+	uidev.id.version = 1;
+	ret = write(ui, &uidev, sizeof(uidev));
+        if (ret == -1) {
+		return ret;
+	}
+	ret = ioctl(ui, UI_DEV_CREATE);
+        if (ret == -1) {
+		return ret;
+	}
+ 
 }
-
 /**
  * Read events from a file pointer
  * fp - file pointer to read from
+ * ui - uinput file pointer
  */
-void events(int fp) {
+void events(int fp,int ui) {
 	char buffer[25];
-	//clear(fp);
 	while (1) {
 		size_t s = read(fp,buffer,25);
-		if (s <= 0) {
+		if (s <= 0 || buffer[0] != 0xaa) {
 			continue;
 		}
-		int i = 0;
-		for (i = 0; i < 50; i++) {
-			unsigned char u = buffer[i];
-			printf("%x ",0xff & u);
-		}
-		printf("\n");
+		struct input_event ev;
+		memset(&ev, 0, sizeof(ev));
+		ev.type = EV_ABS;
+		ev.code = ABS_X;
+		ev.value = (short)(buffer[2]);
+		write(ui, &ev, sizeof(ev));
+		memset(&ev, 0, sizeof(ev));
+		ev.type = EV_ABS;
+		ev.code = ABS_Y;
+		ev.value = (short)(buffer[4]);
+		write(ui, &ev, sizeof(ev));
+		
 	}
 }
 /**
@@ -120,11 +150,21 @@ int main(int argc,char** argv) {
 	}
 	printf("INFO: Opening hidraw device at: %s\n",path);
 	int fp = open(path,O_RDONLY);
-	if (-1 == fp) {
+	if (0 > fp) {
 		fprintf(stderr,"ERROR: Failed to open file: %s with error %s\n",path,strerror(errno));
 		return -3;
 	}
-	events(fp);
+	int ui = open("/dev/uinput", O_WRONLY | O_NONBLOCK);
+	if (0 > ui) {
+		fprintf(stderr,"ERROR: Failed to open file: /dev/uinput with error %s\n",strerror(errno));
+		return -4;
+	}
+	int ret = setup(ui);
+	if (ret < 0) {
+		fprintf(stderr,"ERROR: Failed to setup uinput with error: %s\n",strerror(errno));
+		return -5;
+	}
+	events(fp,ui);
 	close(fp);
         free(path);
 	udev_unref(udev);
