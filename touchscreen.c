@@ -87,6 +87,14 @@ int setup(int ui) {
         if (ret == -1) {
 		return ret;
 	}
+	ret = ioctl(ui, UI_SET_ABSBIT, ABS_X);
+        if (ret == -1) {
+		return ret;
+	}
+	ret = ioctl(ui, UI_SET_ABSBIT, ABS_Y);
+        if (ret == -1) {
+		return ret;
+	}
 	struct uinput_user_dev uidev;
 	memset(&uidev, 0, sizeof(uidev));
 	snprintf(uidev.name, UINPUT_MAX_NAME_SIZE, "touchscreen-driver");
@@ -94,6 +102,10 @@ int setup(int ui) {
 	uidev.id.vendor  = 0xdead;
 	uidev.id.product = 0xbeef;
 	uidev.id.version = 1;
+	uidev.absmin[ABS_X] = 0;
+	uidev.absmax[ABS_X] = 1023;
+	uidev.absmin[ABS_Y] = 0;
+	uidev.absmax[ABS_Y] = 600;
 	ret = write(ui, &uidev, sizeof(uidev));
         if (ret == -1) {
 		return ret;
@@ -116,16 +128,14 @@ void events(int fp,int ui) {
 		if (s <= 0 || buffer[0] != 0xaa) {
 			continue;
 		}
-		struct input_event ev;
+		struct input_event ev[2];
 		memset(&ev, 0, sizeof(ev));
-		ev.type = EV_ABS;
-		ev.code = ABS_X;
-		ev.value = (short)(buffer[2]);
-		write(ui, &ev, sizeof(ev));
-		memset(&ev, 0, sizeof(ev));
-		ev.type = EV_ABS;
-		ev.code = ABS_Y;
-		ev.value = (short)(buffer[4]);
+		ev[0].type = EV_ABS;
+		ev[0].code = ABS_X;
+		ev[0].value = *((short*)(buffer+2));
+		ev[1].type = EV_ABS;
+		ev[1].code = ABS_Y;
+		ev[1].value = *((short*)(buffer+4));
 		write(ui, &ev, sizeof(ev));
 		
 	}
