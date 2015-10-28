@@ -1,6 +1,6 @@
-touchscreen-driver:	touchscreen.c utils.h utils.c
-	gcc -ludev -lc -I. touchscreen.c utils.c -o touchscreen-driver
+touchscreen-driver:	touchscreen.h touchscreen.c utils.h utils.c
+	gcc -I. touchscreen.c utils.c -ludev -lc -o touchscreen-driver
 debug:
-	gcc -ludev -lc -g -I. touchscreen.c utils.c -o touchscreen-driver
+	gcc -I. touchscreen.c utils.c -ludev -lc -g -o touchscreen-driver-debug
 clean:
-	rm -f touchscreen-driver
+	rm -f touchscreen-driver touchscreen-driver-debug

@@ -9,14 +9,16 @@
 #include <fcntl.h> 
 #include <linux/input.h>
 #include <linux/uinput.h>
+#include <arpa/inet.h>
 
+#include "touchscreen.h"
 #include "utils.h"
 
 /**
  * Detects the correct hidraw device that matches the touchscreen's
- * vendor id of oeef and device id of 0005.
- * udev - udev context used to enumerate
- * returns - /dev/?? path to touchscreen's device handle
+ * vendor id of 0eef and device id of 0005.
+ * struct udev* udev - udev context used to enumerate
+ * return - /dev/?? path to touchscreen's device handle
  */
 char* detect(struct udev* udev) {
 	struct udev_enumerate *enumerate;
@@ -72,19 +74,21 @@ char* detect(struct udev* udev) {
 }
 /**
  * Sets up the uinput device
- * ui - uinput file pointer
+ * int ui - uinput file pointer
  */
 int setup(int ui) {
-	//int ret = ioctl(ui, UI_SET_EVBIT,EV_KEY);
-        //if (ret == -1) {
-	//	return ret;
-	//} 
-	int ret = ioctl(ui, UI_SET_EVBIT,EV_SYN);
-        if (ret == -1) {
+	//Setup left button
+	int ret = ioctl(ui, UI_SET_EVBIT,EV_KEY);
+	if (ret == -1) {
+    	return ret;
+    }
+	ret = ioctl(ui, UI_SET_KEYBIT,BTN_LEFT);
+	if (ret == -1) {
 		return ret;
 	}
+	//Setup touch events
 	ret = ioctl(ui, UI_SET_EVBIT,EV_ABS);
-        if (ret == -1) {
+    if (ret == -1) {
 		return ret;
 	}
 	ret = ioctl(ui, UI_SET_ABSBIT, ABS_X);
@@ -95,55 +99,108 @@ int setup(int ui) {
         if (ret == -1) {
 		return ret;
 	}
-	struct uinput_user_dev uidev;
+    //Set synch
+    ret = ioctl(ui, UI_SET_EVBIT,EV_SYN);
+    if (ret == -1) {
+    	return ret;
+    }
+	//Setup uinput user device
+    struct uinput_user_dev uidev;
 	memset(&uidev, 0, sizeof(uidev));
-	snprintf(uidev.name, UINPUT_MAX_NAME_SIZE, "touchscreen-driver");
+	snprintf(uidev.name, UINPUT_MAX_NAME_SIZE, "touchscreen-lestarch");
 	uidev.id.bustype = BUS_USB;
 	uidev.id.vendor  = 0xdead;
 	uidev.id.product = 0xbeef;
 	uidev.id.version = 1;
+	//Setup the ABS bounds
 	uidev.absmin[ABS_X] = 0;
 	uidev.absmax[ABS_X] = 1023;
 	uidev.absmin[ABS_Y] = 0;
-	uidev.absmax[ABS_Y] = 600;
+	uidev.absmax[ABS_Y] = 599;
+	//Write out the file
 	ret = write(ui, &uidev, sizeof(uidev));
-        if (ret == -1) {
+    if (ret == -1) {
 		return ret;
 	}
+    //Create device
 	ret = ioctl(ui, UI_DEV_CREATE);
-        if (ret == -1) {
+    if (ret == -1) {
 		return ret;
 	}
- 
+    return 0;
 }
 /**
- * Read events from a file pointer
- * fp - file pointer to read from
- * ui - uinput file pointer
+ * Read events from a file pointer and write to another pointer
+ * int fp - file pointer to read from
+ * int ui - uinput file pointer
  */
 void events(int fp,int ui) {
 	char buffer[25];
+	TouchEvent* current;
+	TouchEvent* previous;
 	while (1) {
-		size_t s = read(fp,buffer,25);
-		if (s <= 0 || buffer[0] != 0xaa) {
+		//Read and process or ignore
+		if (read(fp,buffer,25) <= 0 || (current = parseEvent(buffer)) == NULL) {
 			continue;
 		}
-		struct input_event ev[2];
-		memset(&ev, 0, sizeof(ev));
-		ev[0].type = EV_ABS;
-		ev[0].code = ABS_X;
-		ev[0].value = *((short*)(buffer+2));
-		ev[1].type = EV_ABS;
-		ev[1].code = ABS_Y;
-		ev[1].value = *((short*)(buffer+4));
-		write(ui, &ev, sizeof(ev));
-		
+		//Get events and write them out
+		struct input_event* events = currentEvents(current,previous);
+		write(ui, events, sizeof(struct input_event)*(2+(current->click != previous->click)));
+		//Update pointers
+		free(previous);
+		previous = current;
 	}
 }
+
+/**
+ * Parse an event record and emit touch event struct
+ * char* record - record byte array to parse
+ * return - touch event struct pointer (caller must free it)
+ */
+TouchEvent* parseEvent(char* record) {
+	TouchEvent* te = (TouchEvent*) safe_malloc(sizeof(TouchEvent));
+	if (te == NULL) {
+		return te;
+	}
+	memcpy(te,record,sizeof(TouchEvent));
+	if (te->header != 0xaa) {
+		free(te);
+		return NULL;
+	}
+	te->x = ntohs(te->x);
+	te->y = ntohs(te->y);
+	return te;
+}
+/**
+ * Create a list of input events based on the current event and the last event
+ * TouchEvent* latest - most recent event
+ * TouchEvent* previous - previously detected event
+ */
+struct input_event* currentEvents(TouchEvent* latest,TouchEvent* previous) {
+	int count = 2 + (latest->click != latest->click);
+	struct input_event* events = safe_malloc(count*sizeof(struct input_event));
+	memset(events, 0, sizeof(events));
+	events[0].type = EV_ABS;
+	events[0].code = ABS_X;
+	events[0].value = latest->x;
+	events[1].type = EV_ABS;
+	events[1].code = ABS_Y;
+	events[1].value = latest->y;
+	//Break if no clicking
+	if (count == 2) {
+		return events;
+	}
+	//Construct the latest event
+	events[2].type = EV_KEY;
+	events[2].code = BTN_LEFT;
+	events[2].value = latest->click;
+	return events;
+}
+
 /**
  * Main program
- * argc - number of arguments
- * argv - argument values
+ * int argc - number of arguments
+ * char** argv - argument values
  * return - system exit code
  */
 int main(int argc,char** argv) {
@@ -176,7 +233,7 @@ int main(int argc,char** argv) {
 	}
 	events(fp,ui);
 	close(fp);
-        free(path);
+    free(path);
 	udev_unref(udev);
 	return 0;
 }
