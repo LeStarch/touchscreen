@@ -8,14 +8,18 @@
 #ifndef _TOUCHSCREEN_H_
 #define _TOUCHSCREEN_H_
 
+#define WIDTH 1024
+#define HEIGHT 768
+
+
 /**
  * TouchEvent struct
  */
 typedef struct {
-	char header;
-	unsigned char click;
-	short x;
-	short y;
+    char header;
+    unsigned char click;
+    short x;
+    short y;
 } TouchEvent;
 
 /**
@@ -37,8 +41,14 @@ int setup(int ui);
  * int fp - file pointer to read from
  * int ui - uinput file pointer
  */
-void events(int fp,int ui)
-;
+void events(int fp,int ui);
+/**
+ * Get the count of the events
+ * TouchEvent* latest - latest event
+ * TouchEvent* previous - previous event
+ * return - count of the number of events
+ */
+int eventCount(TouchEvent* latest, TouchEvent* previous);
 /**
  * Parse an event record and emit touch event struct
  * char* record - record byte array to parse
